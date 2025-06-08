@@ -1,0 +1,120 @@
+dataset: 'stereomis'
+use_semantic: True
+use_normal: False
+dynamic: True
+use_planes: True
+multiscale_res: [1, 2, 4]
+render_freq: 100
+
+data:
+  downsample: 1
+  sc_factor: 1
+  translation: 0
+  num_workers: 0
+
+mapping:
+  sample: 2048
+  first_mesh: True
+  iters: 10
+  lr_embed: 0.01
+  lr_decoder: 0.01
+  lr_rot: 0.0001
+  lr_trans: 0.0001
+  keyframe_every: 5
+  map_every: 5
+  n_pixels: 0.05
+  first_iters: 200
+  optim_cur: True
+  min_pixels_cur: 1024
+  map_accum_step: 1
+  cur_frame_iters: 8
+  pose_accum_step: 5
+  map_wait_step: 0
+  filter_depth: False
+  mapping_window_size: 5
+
+
+tracking:
+  iter: 10
+  sample: 1024
+  pc_samples: 40960
+  lr_rot: 0.001
+  lr_trans: 0.001
+  ignore_edge_W: 1
+  ignore_edge_H: 1
+  iter_point: 0
+  wait_iters: 100
+  const_speed: True
+  best: True
+  gt: False
+
+grid: 
+  enc: 'HashGrid' 
+  tcnn_encoding: True
+  hash_size: 16
+  voxel_color: 0.08 #0.08
+  voxel_sdf: 0.002 #0.02
+  oneGrid: True
+
+pos:
+  enc: 'OneBlob'  #'OneBlob'
+  n_bins: 16
+  n_frequencies: 16
+
+decoder:
+  geo_feat_dim: 15
+  hidden_dim: 32
+  num_layers: 2
+  num_layers_color: 2
+  hidden_dim_color: 64
+  hidden_dim_time: 128
+  num_layers_time: 4
+  tcnn_network: False
+  learnable_beta: True
+
+cam:
+  H: 512
+  W: 640
+  fx: 516.9471435
+  fy: 516.8573608
+  cx: 302.289287
+  cy: 257.488098
+  png_depth_scale: 100 #for depth image in png format
+  crop_edge: 0
+  near: 0
+  far: 2
+  depth_trunc: 10. #100.0
+
+training:
+  normal_weight: 0.000
+  normal_loss: 0.000
+  rgb_weight: 5
+  semantic_weight: 0
+  angle_loss_weight: 0
+  depth_weight: 0.1  #0.1
+  sdf_weight: 1000 #1000
+  fs_weight: 10  #10
+  eikonal_weight: 0
+  smooth_weight: 0 #0.000001
+  smooth_pts: 32
+  smooth_vox: 0.1
+  smooth_margin: 0.05
+  #n_samples: 256
+  n_samples_d: 32
+  range_d: 0.05
+  n_range_d: 16
+  n_importance: 0
+  perturb: 1
+  white_bkgd: False
+  trunc: 0.1
+  rot_rep: 'axis_angle'
+  rgb_missing: 0.05
+
+mesh:
+  resolution: 512
+  render_color: False
+  vis: 2000
+  voxel_eval: 0.03
+  voxel_final: 0.03
+  visualisation: False
+  

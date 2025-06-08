@@ -1,0 +1,13 @@
+inherit_from: configs/Super/Super.yaml
+timesteps:  151
+mapping:
+  bound: [[-1,1],[-0.8,0.8],[-0.01,2.4]]
+  marching_cubes_bound: [[-1,1],[-0.8,0.8],[-0.01,2.4]]
+  #bound: [[-3.0,3.0],[-3.0,3.0],[2.0,4]]
+  #marching_cubes_bound: [[-3.0,3.0],[-3.0,3.0],[2.0,4]]
+
+data:
+  datadir: data/trail8
+  trainskip: 1
+  output: output/trail8
+  exp_name: demo
