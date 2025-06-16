@@ -178,6 +178,32 @@ class JointEncoding(nn.Module):
         edge_semantic = torch.reshape(edge_semantic, list(inputs.shape[:-1]) + [edge_semantic.shape[-1]])
         return outputs, edge_semantic
     
+    def query_sdf(self, query_points, return_geo=False, embed=False):
+        '''
+        Get the SDF value of the query points
+        Params:
+            query_points: [N_rays, N_samples, 3]
+        Returns:
+            sdf: [N_rays, N_samples]
+            geo_feat: [N_rays, N_samples, channel]
+        '''
+        inputs_flat = torch.reshape(query_points, [-1, query_points.shape[-1]])
+  
+        embedded = self.embed_fn(inputs_flat)
+        if embed:
+            return torch.reshape(embedded, list(query_points.shape[:-1]) + [embedded.shape[-1]])
+
+        embedded_pos = self.embedpos_fn(inputs_flat)
+        out = self.sdf_net(torch.cat([embedded, embedded_pos], dim=-1))
+        sdf, geo_feat = out[..., :1], out[..., 1:]
+
+        sdf = torch.reshape(sdf, list(query_points.shape[:-1]))
+        if not return_geo:
+            return sdf
+        geo_feat = torch.reshape(geo_feat, list(query_points.shape[:-1]) + [geo_feat.shape[-1]])
+
+        return sdf, geo_feat
+
     def render_rays(self, rays_o, rays_d, target_d=None):
         '''
         Params:
