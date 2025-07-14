@@ -7,7 +7,7 @@ class KeyFrameDatabase(object):
         self.config = config
         self.keyframes = {}
         self.device = device
-        self.rays = torch.zeros((num_kf, num_rays_to_save, 8))  # 改过的！注意这里！
+        self.rays = torch.zeros((num_kf, num_rays_to_save, 8)) 
         self.num_rays_to_save = num_rays_to_save
         self.frame_ids = None
         self.H = H

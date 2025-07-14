@@ -3,8 +3,6 @@ import torch
 import torch.nn as nn
 import tinycudann as tcnn
 
-# decoder已经基本修改好了 加了一个和edgenet构造完全一样的edgenet_semantic 并且构造函数和前向传递函数都ok了
-# 目前使用的是ColorSDFNet_V2 前向传递的输出：rgb, edge, sdf,edge_semantic
 class TimeNet(nn.Module):
     def __init__(self, config, input_ch=3,
                 hidden_dim_time=64, num_layers_time=3):
@@ -117,7 +115,6 @@ class EdgeNet(nn.Module):
         self.model = self.get_model(config['decoder']['tcnn_network'])
     
     def forward(self, input_feat):
-        # h = torch.cat([embedded_dirs, geo_feat], dim=-1)
         return self.model(input_feat)
     
     def get_model(self, tcnn_network=False):
@@ -167,7 +164,6 @@ class ColorEdgeNet(nn.Module):
         self.model = self.get_model(config['decoder']['tcnn_network'])
 
     def forward(self, input_feat):
-        # h = torch.cat([embedded_dirs, geo_feat], dim=-1)
         return self.model(input_feat)
 
     def get_model(self, tcnn_network=False):
@@ -257,7 +253,6 @@ class SDFNet(nn.Module):
 
             return nn.Sequential(*nn.ModuleList(sdf_net))
 
-# 整体构造与EdgeNet完全一致的语义edgenet
 class EdgeNet_Semantic(nn.Module): 
     def __init__(self, config, input_ch=4, geo_feat_dim=15,
                  hidden_dim_color=64, num_layers_color=3):
@@ -394,7 +389,6 @@ class ColorSDFNet_v1(nn.Module):
             edge = self.edge_net(torch.cat([geo_feat], dim=-1))
         
         return torch.cat([rgb, edge, sdf], -1)
-# v1是Co-SLAM-2里面用到的集合网络
 
 class ColorSDFNet_v2(nn.Module):
     '''
@@ -409,22 +403,17 @@ class ColorSDFNet_v2(nn.Module):
                                   geo_feat_dim=config['decoder']['geo_feat_dim'],
                                   hidden_dim_color=config['decoder']['hidden_dim_color'],
                                   num_layers_color=config['decoder']['num_layers_color'])
+        
         self.time_net = TimeNet(config,
             input_ch=input_ch_time+input_ch_fre,
             hidden_dim_time=config['decoder']['hidden_dim_time'], 
             num_layers_time=config['decoder']['num_layers_time'])
-        """
-        self.edge_net = EdgeNet(config,
-                                input_ch=input_ch_pos,
-                                geo_feat_dim=config['decoder']['geo_feat_dim'],
-                                hidden_dim_color=config['decoder']['hidden_dim_color'],
-                                num_layers_color=config['decoder']['num_layers_color'])
-        """
+
         self.edgenet_semantic = EdgeNet_Semantic(config,
                                 input_ch=input_ch_pos,
                                 geo_feat_dim=config['decoder']['geo_feat_dim'],
                                 hidden_dim_color=config['decoder']['hidden_dim_color'],
-                                num_layers_color=config['decoder']['num_layers_color']) # 配置和edgeNet是完全一致的
+                                num_layers_color=config['decoder']['num_layers_color'])
         self.sdf_net = SDFNet(config,
                               input_ch=input_ch + input_ch_pos,
                               geo_feat_dim=config['decoder']['geo_feat_dim'],
@@ -443,15 +432,8 @@ class ColorSDFNet_v2(nn.Module):
             rgb = self.color_net(torch.cat([embed_pos, geo_feat], dim=-1))
         else:
             rgb = self.color_net(torch.cat([geo_feat], dim=-1))
-        """
+
         if embed_pos is not None:
-            edge = self.edge_net(torch.cat([embed_pos, geo_feat], dim=-1))
-        else:
-            edge = self.edge_net(torch.cat([geo_feat], dim=-1))
-        """
-        if embed_pos is not None:
-            # embed_pos=embed_pos.detach()
-            # geo_feat= geo_feat.detach()
             edge_semantic = self.edgenet_semantic(torch.cat([embed_pos, geo_feat], dim=-1))
         else:
             edge_semantic = self.edgenet_semantic(torch.cat([geo_feat], dim=-1))

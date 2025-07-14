@@ -20,7 +20,6 @@ class JointEncoding(nn.Module):
         self.get_decoder(config)
         self.n_imgs = self.config['timesteps']
 
-        self.scene_bbox = torch.as_tensor([[bound_box[0][0], bound_box[1][0], bound_box[2][0]],[bound_box[0][1],bound_box[1][1], bound_box[2][1]]], dtype=torch.float32).to("cuda:1")   
 
 
     def get_resolution(self):
@@ -68,7 +67,6 @@ class JointEncoding(nn.Module):
             self.decoder = ColorSDFNet_v2(config, input_ch=self.input_ch, input_ch_pos=self.input_ch_pos,input_ch_time=self.input_ch_time,input_ch_fre=self.input_ch_fre)
         
         self.color_net = batchify(self.decoder.color_net, None)
-        #self.edge_net = batchify(self.decoder.edge_net, None)
         self.sdf_net = batchify(self.decoder.sdf_net, None)
         self.edgenet_semantic = batchify(self.decoder.edgenet_semantic, None)
         self.time_net = batchify(self.decoder.time_net, None)
@@ -110,13 +108,10 @@ class JointEncoding(nn.Module):
             weights: [N_rays, N_samples]
         '''
         rgb = torch.sigmoid(raw[...,:3])  # [N_rays, N_samples, 3]
-        #edge = torch.sigmoid(raw[...,3:4])
-        #edge_semantic = torch.sigmoid(raw[..., 3:4])  # 新加的
         edge_semantic = torch.sigmoid(edge_semantic) 
 
         weights = self.sdf2weights(raw[..., 3], z_vals, args=self.config)
         rgb_map = torch.sum(weights[...,None] * rgb, -2)  # [N_rays, 3]
-        #edge_map = torch.sum(weights[...,None] * edge, -2)
         edge_semantic_map = torch.sum(weights[...,None] * edge_semantic, -2)
 
 
@@ -162,11 +157,11 @@ class JointEncoding(nn.Module):
         if self.config['dynamic']:
             pts = inputs_flat[:,:3]
             frame_time = inputs_flat[:,3].unsqueeze(-1)
-            #embed_time,_ = self.interpolate_feature(inputs_flat)
             embed_time = self.embed_time(frame_time)
             embed_pos = self.embed_fre_pos(pts)
             h = torch.cat([embed_time,embed_pos],dim=-1)
             vox_motion = self.time_net(h)
+            vox_motion = torch.where(frame_time.reshape(-1, frame_time.shape[-1]) == 0, torch.zeros_like(vox_motion), vox_motion) 
             inputs_flat = pts + vox_motion
         
         # Normalize the input to [0, 1] (TCNN convention)
@@ -318,27 +313,12 @@ class JointEncoding(nn.Module):
             depth_loss = compute_loss(rend_dict["depth"].squeeze()[valid_depth_mask], target_d.squeeze()[valid_depth_mask])
 
             if UseBorder is False:
-                """
-                edge_loss = compute_loss(
-                    rend_dict["edge"].squeeze()[valid_depth_mask],
-                    target_edge.squeeze()[valid_depth_mask],
-                    UsePercentage=notFirstMap
-                )
-                """
                 edge_semantic_loss = compute_loss(
                     rend_dict["edge_semantic"].squeeze()[valid_depth_mask],
                     target_edge_semantic.squeeze()[valid_depth_mask],
                     UsePercentage=notFirstMap
                 )
             else:
-                """
-                edge_loss = compute_loss(
-                    rend_dict["edge"].squeeze()[valid_depth_mask],
-                    target_edge.squeeze()[valid_depth_mask],
-                    border=border.squeeze()[valid_depth_mask],
-                    UsePercentage=notFirstMap
-                )
-                """
                 edge_semantic_loss = compute_loss(
                     rend_dict["edge_semantic"].squeeze()[valid_depth_mask],
                     target_edge_semantic.squeeze()[valid_depth_mask],
