@@ -3,8 +3,6 @@ timesteps:  4000
 mapping:
   bound: [[-1.8,2.1],[-2,1.2],[-0.1,2.7]]
   marching_cubes_bound: [[-1.8,2.1],[-2,1.2],[-0.1,2.7]]
-  #bound: [[-3.0,3.0],[-3.0,3.0],[2.0,4]]
-  #marching_cubes_bound: [[-3.0,3.0],[-3.0,3.0],[2.0,4]]
 
 data:
   datadir: data/P2_1
