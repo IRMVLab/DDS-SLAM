@@ -119,39 +119,13 @@ class StereoMISDataset(BaseDataset):
         self.crop = crop
         self.img_files = sorted(glob.glob(f'{self.basedir}/video_frames/*l.png'))[-4000:]
         self.depth_paths = sorted(glob.glob(f'{self.basedir}/depth/*.png'))[-4000:]
-        # pattern = re.compile(r'^\d+\.png$')
-        # self.depth_paths = sorted(
-        #     [f for f in glob.glob(os.path.join(basedir, 'depth', '*.png')) if pattern.match(os.path.basename(f))],
-        #     key=lambda x: int(os.path.basename(x)[:-4])
-        # )
-        # print(self.depth_paths)
-        # assert 0
-
 
         self.semantic_paths = sorted(
            glob.glob(os.path.join(
            self.basedir, 'masks', '*.png')))[-2000:]#, key=lambda x: int(os.path.basename(x)[:-4]))
 
-        # all_pixel_values = set()  # 使用集合来保存所有不同的像素值
-
-        # for pth in self.semantic_paths:
-        #     img = cv2.imread(pth)  # 以灰度图形式读取图像
-        #     all_pixel_values.update(np.unique(img))
-
-        # # 将集合转换为列表并打印
-        # unique_pixel_values = list(all_pixel_values)
-        # print(unique_pixel_values)
-
-        # assert 0
-
-        # print(self.instance_path)
-        # assert 0
-
         self.load_poses(os.path.join(self.basedir, 'pose'))
-
-        # self.depth_cleaner = cv2.rgbd.DepthCleaner_create(cv2.CV_32F, 5)
         
-
         self.rays_d = None
         self.frame_ids = range(0, len(self.img_files))
         self.num_frames = len(self.frame_ids)
@@ -178,23 +152,17 @@ class StereoMISDataset(BaseDataset):
             raise NotImplementedError()
         if self.distortion is not None:
             raise NotImplementedError()
-        # instance_data = cv2.imread(instance_path, cv2.IMREAD_UNCHANGED)
 
         color_data = cv2.cvtColor(color_data, cv2.COLOR_BGR2RGB)
         H, W = depth_data.shape
         color_data = cv2.resize(color_data, (W, H))
-        # instance_data = cv2.resize(instance_data, (W, H))
 
         semantic_data = cv2.imread(semantic_path)
         semantic_data = cv2.resize(semantic_data, (W, H))
-        
-        #edge_data = compute_edge(color_data, depth_data0)
         edge_data_semantic = compute_edge_semantic(semantic_data, depth_data0)
-
 
         color_data = color_data / 255.
         depth_data = depth_data.astype(np.float32) / self.png_depth_scale * self.sc_factor
-
 
         if self.downsample_factor > 1:
             H = H // self.downsample_factor
@@ -203,7 +171,6 @@ class StereoMISDataset(BaseDataset):
             self.fy = self.fy // self.downsample_factor
             color_data = cv2.resize(color_data, (W, H), interpolation=cv2.INTER_AREA)
             depth_data = cv2.resize(depth_data, (W, H), interpolation=cv2.INTER_NEAREST)
-            #edge_data = cv2.resize(edge_data, (W, H), interpolation=cv2.INTER_AREA)
             edge_data_semantic = cv2.resize(edge_data_semantic, (W, H), interpolation=cv2.INTER_AREA)
         
         edge = self.config['cam']['crop_edge']
@@ -211,7 +178,6 @@ class StereoMISDataset(BaseDataset):
             # crop image edge, there are invalid value on the edge of the color image
             color_data = color_data[edge:-edge, edge:-edge]
             depth_data = depth_data[edge:-edge, edge:-edge]
-            #edge_data = edge_data[edge:-edge, edge:-edge]
             edge_data_semantic = edge_data_semantic[edge:-edge, edge:-edge]
 
         if self.rays_d is None:
@@ -228,7 +194,6 @@ class StereoMISDataset(BaseDataset):
             "c2w":  self.poses[index],
             "rgb": color_data,
             "depth": depth_data,
-            #"edge": edge_data,
             "edge_semantic": edge_data_semantic,
             "border": border_data,
             "direction": self.rays_d
@@ -238,18 +203,13 @@ class StereoMISDataset(BaseDataset):
 
     def load_poses(self, path):
         self.poses = []
-        #with open(path, "r") as f:
-        #    lines = f.readlines()
         for i in range(len(self.img_files)):
-            #line = lines[i]
-            #c2w = np.array(list(map(float, line.split()))).reshape(4, 4)
             c2w=np.eye(4)
             c2w[:3, 1] *= -1
             c2w[:3, 2] *= -1
             c2w[:3, 3] *= self.sc_factor
             c2w = torch.from_numpy(c2w).float()
             self.poses.append(c2w)
-
 
 class SuperDataset(BaseDataset):
     def __init__(self, cfg, basedir, trainskip=1, 
@@ -270,26 +230,8 @@ class SuperDataset(BaseDataset):
             glob.glob(f'{self.basedir}/rgb/*left_depth.npy'))
         self.semantic_paths=sorted(glob.glob(f'{self.basedir}/seg/png_masks/*left.png'))
 
-        # all_pixel_values = set()  # 使用集合来保存所有不同的像素值
-
-        # for pth in self.semantic_paths:
-        #     img = cv2.imread(pth)  # 以灰度图形式读取图像
-        #     all_pixel_values.update(np.unique(img))
-
-        # # 将集合转换为列表并打印
-        # unique_pixel_values = list(all_pixel_values)
-        # print(unique_pixel_values)
-
-        # assert 0
-
-        # print(self.instance_path)
-        # assert 0
-
         self.load_poses(os.path.join(self.basedir, 'pose'))
-
-        # self.depth_cleaner = cv2.rgbd.DepthCleaner_create(cv2.CV_32F, 5)
         
-
         self.rays_d = None
         self.frame_ids = range(0, len(self.img_files))
         self.num_frames = len(self.frame_ids)
@@ -321,7 +263,6 @@ class SuperDataset(BaseDataset):
             raise NotImplementedError()
         if self.distortion is not None:
             raise NotImplementedError()
-        # instance_data = cv2.imread(instance_path, cv2.IMREAD_UNCHANGED)
 
         color_data = cv2.cvtColor(color_data, cv2.COLOR_BGR2RGB)
         H, W = depth_data.shape
@@ -335,8 +276,6 @@ class SuperDataset(BaseDataset):
             semantic_data = semantic_data.reshape(semantic_data.shape[-2], semantic_data.shape[-1],3)
             print(semantic_data)
             semantic_data = cv2.cvtColor(semantic_data, cv2.COLOR_BGR2GRAY)
-        #edge_data = compute_edge(color_data, depth_data0)
-        #print(semantic_data.shape)
 
         edge_data_semantic = compute_edge_semantic(semantic_data, depth_data0)
 
@@ -352,7 +291,6 @@ class SuperDataset(BaseDataset):
             self.fy = self.fy // self.downsample_factor
             color_data = cv2.resize(color_data, (W, H), interpolation=cv2.INTER_AREA)
             depth_data = cv2.resize(depth_data, (W, H), interpolation=cv2.INTER_NEAREST)
-            #edge_data = cv2.resize(edge_data, (W, H), interpolation=cv2.INTER_AREA)
             edge_data_semantic = cv2.resize(edge_data_semantic, (W, H), interpolation=cv2.INTER_AREA)
         
         edge = self.config['cam']['crop_edge']
@@ -360,7 +298,6 @@ class SuperDataset(BaseDataset):
             # crop image edge, there are invalid value on the edge of the color image
             color_data = color_data[edge:-edge, edge:-edge]
             depth_data = depth_data[edge:-edge, edge:-edge]
-            #edge_data = edge_data[edge:-edge, edge:-edge]
             edge_data_semantic = edge_data_semantic[edge:-edge, edge:-edge]
 
         if self.rays_d is None:
@@ -368,7 +305,6 @@ class SuperDataset(BaseDataset):
 
         color_data = torch.from_numpy(color_data.astype(np.float32))
         depth_data = torch.from_numpy(depth_data.astype(np.float32))
-        #edge_data = torch.from_numpy(edge_data.astype(np.float32))
         edge_data_semantic = torch.from_numpy(edge_data_semantic.astype(np.float32))
         border_data = create_border_data(depth_data)
 
@@ -377,7 +313,6 @@ class SuperDataset(BaseDataset):
             "c2w":  self.poses[index],
             "rgb": color_data,
             "depth": depth_data,
-            #"edge": edge_data,
             "edge_semantic": edge_data_semantic,
             "border": border_data,
             "direction": self.rays_d
@@ -387,11 +322,7 @@ class SuperDataset(BaseDataset):
 
     def load_poses(self, path):
         self.poses = []
-        #with open(path, "r") as f:
-        #    lines = f.readlines()
         for i in range(len(self.img_files)):
-            #line = lines[i]
-            #c2w = np.array(list(map(float, line.split()))).reshape(4, 4)
             c2w=np.eye(4)
             c2w[:3, 1] *= -1
             c2w[:3, 2] *= -1
