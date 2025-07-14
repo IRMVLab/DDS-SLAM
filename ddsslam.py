@@ -128,7 +128,6 @@ class DDSSLAM():
         '''
         randomly select samples from the image
         '''
-        #indice = torch.randint(H*W, (samples,))
         indice = random.sample(range(H * W), int(samples))
         indice = torch.tensor(indice)
         return indice
@@ -157,7 +156,7 @@ class DDSSLAM():
         if fs:
             loss +=  self.config['training']['fs_weight'] * ret["fs_loss"]
         if edge:
-            loss += self.config['training']['rgb_weight'] * 0.5 * ret["edge_loss"]  # 注意是RGB_loss+0.5的edge_loss
+            loss += self.config['training']['rgb_weight'] * 0.5 * ret["edge_loss"]  
         if edge_semantic:
             loss += self.config['training']['rgb_weight'] * 0.1 * ret["edge_semantic_loss"]
         
@@ -165,9 +164,6 @@ class DDSSLAM():
             loss += self.config['training']['smooth_weight'] * self.smoothness(self.config['training']['smooth_pts'], 
                                                                                   self.config['training']['smooth_vox'], 
                                                                                   margin=self.config['training']['smooth_margin'])
-        #wandb.log({'rgb_loss': ret['rgb_loss'], "depth_loss": ret['depth_loss'], 
-        #           "sdf_loss": ret["sdf_loss"], "fs_loss":ret["fs_loss"]})
-        
         return loss             
 
     def first_frame_mapping(self, batch, n_iters=100):
@@ -198,7 +194,6 @@ class DDSSLAM():
             indice_h, indice_w = indice % (self.dataset.H), indice // (self.dataset.H)
             rays_d_cam = batch['direction'].squeeze(0)[indice_h, indice_w, :].to(self.device)
             target_s = batch['rgb'].squeeze(0)[indice_h, indice_w, :].to(self.device)
-            #target_edge = batch['edge'].squeeze(0)[indice_h, indice_w].to(self.device).unsqueeze(-1)
             target_edge_semantic = batch['edge_semantic'].squeeze(0)[indice_h, indice_w].to(self.device).unsqueeze(-1)
             target_d = batch['depth'].squeeze(0)[indice_h, indice_w].to(self.device).unsqueeze(-1)
 
@@ -216,9 +211,6 @@ class DDSSLAM():
         
         # First frame will always be a keyframe
         self.keyframeDatabase.add_keyframe(batch, filter_depth=self.config['mapping']['filter_depth'])
-        #if self.config['mapping']['first_mesh']:
-        #    self.save_mesh(0)
-        
         print('First frame mapping done')
         return ret, loss
 
@@ -242,21 +234,22 @@ class DDSSLAM():
         c2w = self.est_c2w_data[cur_frame_id].to(self.device)
 
         self.model.train()
-
+        cur_rot, cur_trans, pose_optimizer = self.get_pose_param_optim(c2w[None, ...], mapping=True)
         # Training
         for i in range(self.config['mapping']['cur_frame_iters']):
+            pose_optimizer.zero_grad()
             self.cur_map_optimizer.zero_grad()
+            c2w_est = self.matrix_from_tensor(cur_rot, cur_trans)
             indice = self.select_samples(self.dataset.H, self.dataset.W, self.config['mapping']['sample'])
             
             indice_h, indice_w = indice % (self.dataset.H), indice // (self.dataset.H)
             rays_d_cam = batch['direction'].squeeze(0)[indice_h, indice_w, :].to(self.device)
             target_s = batch['rgb'].squeeze(0)[indice_h, indice_w, :].to(self.device)
-            #target_edge = batch['edge'].squeeze(0)[indice_h, indice_w].to(self.device).unsqueeze(-1)
             target_edge_semantic = batch['edge_semantic'].squeeze(0)[indice_h, indice_w].to(self.device).unsqueeze(-1)
             target_d = batch['depth'].squeeze(0)[indice_h, indice_w].to(self.device).unsqueeze(-1)
 
-            rays_o = c2w[None, :3, -1].repeat(self.config['mapping']['sample'], 1)
-            rays_d = torch.sum(rays_d_cam[..., None, :] * c2w[:3, :3], -1)
+            rays_o = c2w_est[..., :3, -1].repeat(self.config['mapping']['sample'], 1)
+            rays_d = torch.sum(rays_d_cam[..., None, :] * c2w_est[: ,:3, :3], -1)
             if self.config['dynamic']:
                 cur_id = (cur_frame_id*torch.ones(rays_o.shape[0]))
                 timestamps = cur_id.to(self.device) #/ self.n_imgs #*2 -1
@@ -266,8 +259,6 @@ class DDSSLAM():
             loss = self.get_loss_from_ret(ret)
             loss.backward()
             self.cur_map_optimizer.step()
-        
-        
         return ret, loss
 
     def smoothness(self, sample_points=256, voxel_size=0.1, margin=0.05, color=False):
@@ -347,12 +338,6 @@ class DDSSLAM():
         if pose_optimizer is not None:
             pose_optimizer.zero_grad()
 
-        # print(batch['direction'].size())
-        # print(batch['rgb'].size())
-        # print(batch['depth'][..., None].size())
-        # print(batch['edge'][..., None].size())
-        # print(batch['edge_semantic'][..., None].size())
-        # print(batch['edge'][..., None].size())
         current_rays = torch.cat([batch['direction'], batch['rgb'], batch['depth'][..., None], batch['edge_semantic'][..., None]], dim=-1)
         current_rays = current_rays.reshape(-1, current_rays.shape[-1])
 
@@ -368,10 +353,6 @@ class DDSSLAM():
             #TODO: Checkpoint...
             idx_cur = random.sample(range(0, self.dataset.H * self.dataset.W),max(self.config['mapping']['sample'] // len(self.keyframeDatabase.frame_ids), self.config['mapping']['min_pixels_cur']))
             current_rays_batch = current_rays[idx_cur, :]
-
-            # print(rays.size())
-            # print(current_rays_batch.size())
-            # assert 0
             rays = torch.cat([rays, current_rays_batch], dim=0) # N, 7
             ids_all = torch.cat([ids//self.config['mapping']['keyframe_every'], -torch.ones((len(idx_cur)))]).to(torch.int64)
 
@@ -387,7 +368,7 @@ class DDSSLAM():
             rays_d = rays_d.reshape(-1, 3)
             if self.config['dynamic']:
                 cur_id = (cur_frame_id*torch.ones(current_rays_batch.shape[0]))
-                timestamps = torch.cat([ids,cur_id],dim=0).to(self.device) #/ self.n_imgs# * 2 -1
+                timestamps = torch.cat([ids,cur_id],dim=0).to(self.device) 
                 rays_o = torch.cat([rays_o,timestamps.unsqueeze(-1)],dim=1)
 
             ret = self.model.forward(rays_o, rays_d, target_s, target_d, target_edge_semantic=target_edge_semantic)
@@ -447,100 +428,6 @@ class DDSSLAM():
         
         return self.est_c2w_data[frame_id]
 
-    def tracking_pc(self, batch, frame_id):
-        '''
-        这个没用到！不用改！！
-        Tracking camera pose of current frame using point cloud loss
-        (Not used in the paper, but might be useful for some cases)
-        '''
-
-        c2w_gt = batch['c2w'][0].to(self.device)
-
-        cur_c2w = self.predict_current_pose(frame_id, self.config['tracking']['const_speed'])
-
-        cur_trans = torch.nn.parameter.Parameter(cur_c2w[..., :3, 3].unsqueeze(0))
-        cur_rot = torch.nn.parameter.Parameter(self.matrix_to_tensor(cur_c2w[..., :3, :3]).unsqueeze(0))
-        pose_optimizer = torch.optim.Adam([{"params": cur_rot, "lr": self.config['tracking']['lr_rot']},
-                                               {"params": cur_trans, "lr": self.config['tracking']['lr_trans']}])
-        best_sdf_loss = None
-
-        iW = self.config['tracking']['ignore_edge_W']
-        iH = self.config['tracking']['ignore_edge_H']
-
-        thresh=0
-
-        if self.config['tracking']['iter_point'] > 0:
-            indice_pc = self.select_samples(self.dataset.H-iH*2, self.dataset.W-iW*2, self.config['tracking']['pc_samples'])
-            rays_d_cam = batch['direction'][:, iH:-iH, iW:-iW].reshape(-1, 3)[indice_pc].to(self.device)
-            target_s = batch['rgb'][:, iH:-iH, iW:-iW].reshape(-1, 3)[indice_pc].to(self.device)
-            target_d = batch['depth'][:, iH:-iH, iW:-iW].reshape(-1, 1)[indice_pc].to(self.device)
-            target_edge = batch['edge'][:, iH:-iH, iW:-iW].reshape(-1, 1)[indice_pc].to(self.device)
-            target_edge_semantic = batch['edge_semantic'][:, iH:-iH, iW:-iW].reshape(-1, 1)[indice_pc].to(self.device)
-
-            valid_depth_mask = ((target_d > 0.) * (target_d < 5.))[:,0]
-
-            rays_d_cam = rays_d_cam[valid_depth_mask]
-            target_s = target_s[valid_depth_mask]
-            target_d = target_d[valid_depth_mask]
-            target_edge = target_edge[valid_depth_mask]
-            target_edge_semantic = target_edge_semantic[valid_depth_mask]
-
-            for i in range(self.config['tracking']['iter_point']):
-                pose_optimizer.zero_grad()
-                c2w_est = self.matrix_from_tensor(cur_rot, cur_trans)
-
-
-                rays_o = c2w_est[...,:3, -1].repeat(len(rays_d_cam), 1)
-                rays_d = torch.sum(rays_d_cam[..., None, :] * c2w_est[:, :3, :3], -1)
-                pts = rays_o + target_d * rays_d
-
-                pts_flat = (pts - self.bounding_box[:, 0]) / (self.bounding_box[:, 1] - self.bounding_box[:, 0])
-
-                out = self.model.query_color_sdf(pts_flat)
-
-                sdf = out[:, 4]
-                rgb = torch.sigmoid(out[:,:3])
-                edge = torch.sigmoid((out[:,3:4]))
-                edge_semantic = torch.sigmoid((out[:, 5:6]))
-
-                # TODO: Change this
-                loss = 5 * torch.mean(torch.square(rgb-target_s)) + 2*torch.mean(torch.square(edge-target_edge)) + 1000 * torch.mean(torch.square(sdf))
-
-                if best_sdf_loss is None:
-                    best_sdf_loss = loss.cpu().item()
-                    best_c2w_est = c2w_est.detach()
-
-                with torch.no_grad():
-                    c2w_est = self.matrix_from_tensor(cur_rot, cur_trans)
-
-                    if loss.cpu().item() < best_sdf_loss:
-                        best_sdf_loss = loss.cpu().item()
-                        best_c2w_est = c2w_est.detach()
-                        thresh = 0
-                    else:
-                        thresh +=1
-                if thresh >self.config['tracking']['wait_iters']:
-                    break
-
-                loss.backward()
-                pose_optimizer.step()
-        
-
-        if self.config['tracking']['best']:
-            self.est_c2w_data[frame_id] = best_c2w_est.detach().clone()[0]
-        else:
-            self.est_c2w_data[frame_id] = c2w_est.detach().clone()[0]
-
-
-        if frame_id % self.config['mapping']['keyframe_every'] != 0:
-            # Not a keyframe, need relative pose
-            kf_id = frame_id // self.config['mapping']['keyframe_every']
-            kf_frame_id = kf_id * self.config['mapping']['keyframe_every']
-            c2w_key = self.est_c2w_data[kf_frame_id]
-            delta = self.est_c2w_data[frame_id] @ c2w_key.float().inverse()
-            self.est_c2w_data_rel[frame_id] = delta
-        print('Best loss: {}, Camera loss{}'.format(F.l1_loss(best_c2w_est.to(self.device)[0,:3], c2w_gt[:3]).cpu().item(), F.l1_loss(c2w_est[0,:3], c2w_gt[:3]).cpu().item()))
-    
     def tracking_render(self, batch, frame_id):
         '''
         Tracking camera pose using of the current frame
@@ -583,7 +470,6 @@ class DDSSLAM():
                 rays_d_cam = batch['direction'].squeeze(0)[iH:-iH, iW:-iW, :][indice_h, indice_w, :].to(self.device)
             target_s = batch['rgb'].squeeze(0)[iH:-iH, iW:-iW, :][indice_h, indice_w, :].to(self.device)
             target_d = batch['depth'].squeeze(0)[iH:-iH, iW:-iW][indice_h, indice_w].to(self.device).unsqueeze(-1)
-            #target_edge = batch['edge'].squeeze(0)[iH:-iH, iW:-iW][indice_h, indice_w].to(self.device).unsqueeze(-1)
             target_edge_semantic = batch['edge_semantic'].squeeze(0)[iH:-iH, iW:-iW][indice_h, indice_w].to(self.device).unsqueeze(-1)
             border = batch['border'].squeeze(0)[iH:-iH, iW:-iW][indice_h, indice_w].to(self.device).unsqueeze(-1)
 
@@ -671,21 +557,6 @@ class DDSSLAM():
                  
             self.cur_map_optimizer = optim.Adam(params_cur_mapping, betas=(0.9, 0.99))
         
-    
-    def save_mesh(self, i, voxel_size=0.05):
-        mesh_savepath = os.path.join(self.config['data']['output'], self.config['data']['exp_name'], 'mesh_track{}.ply'.format(i))
-        if self.config['mesh']['render_color']:
-            color_func = self.model.render_surface_color
-        else:
-            color_func = self.model.query_color
-        extract_mesh(self.model.query_sdf, 
-                        self.config, 
-                        self.bounding_box, 
-                        color_func=color_func, 
-                        marching_cube_bound=self.marching_cube_bound, 
-                        voxel_size=voxel_size, 
-                        mesh_savepath=mesh_savepath)      
-        
     def run(self):
         self.create_optimizer()
         data_loader = DataLoader(self.dataset, num_workers=self.config['data']['num_workers'])
@@ -716,16 +587,13 @@ class DDSSLAM():
                 if self.config['tracking']['iter_point'] > 0:
                     self.tracking_pc(batch, i)
                 self.tracking_render(batch, i)
-    
                 if i%self.config['mapping']['map_every']==0:
                     self.global_BA(batch, i)
-                #else:
                     self.current_frame_mapping(batch, i)
 
                 if i % self.config['render_freq'] == 0:
                     self.rendering(batch, i)
 
-                    
                 # Add keyframe
                 if i % self.config['mapping']['keyframe_every'] == 0:
                     self.keyframeDatabase.add_keyframe(batch, filter_depth=self.config['mapping']['filter_depth'])
@@ -733,29 +601,22 @@ class DDSSLAM():
             
 
                 if i % self.config['mesh']['vis']==0:
-                    #self.save_mesh(i, voxel_size=self.config['mesh']['voxel_eval'])
                     pose_relative = self.convert_relative_pose()
                     pose_evaluation(self.pose_gt, self.est_c2w_data, 1, os.path.join(self.config['data']['output'], self.config['data']['exp_name']), i)
                     pose_evaluation(self.pose_gt, pose_relative, 1, os.path.join(self.config['data']['output'], self.config['data']['exp_name']), i, img='pose_r', name='output_relative.txt')
 
-                    if cfg['mesh']['visualisation']:
-                        cv2.namedWindow('Traj:'.format(i), cv2.WINDOW_AUTOSIZE)
-                        traj_image = cv2.imread(os.path.join(self.config['data']['output'], self.config['data']['exp_name'], "pose_r_{}.png".format(i)))
-                        # best_traj_image = cv2.imread(os.path.join(best_logdir_scene, "pose_r_{}.png".format(i)))
-                        # image_show = np.hstack((traj_image, best_traj_image))
-                        image_show = traj_image
-                        cv2.imshow('Traj:'.format(i), image_show)
-                        key = cv2.waitKey(1)
-
         model_savepath = os.path.join(self.config['data']['output'], self.config['data']['exp_name'], 'checkpoint{}.pt'.format(i)) 
         
         self.save_ckpt(model_savepath)
-        #self.save_mesh(i, voxel_size=self.config['mesh']['voxel_final'])
         
         pose_relative = self.convert_relative_pose()
         pose_evaluation(self.pose_gt, self.est_c2w_data, 1, os.path.join(self.config['data']['output'], self.config['data']['exp_name']), i)
         pose_evaluation(self.pose_gt, pose_relative, 1, os.path.join(self.config['data']['output'], self.config['data']['exp_name']), i, img='pose_r', name='output_relative.txt')
-
+        est_c2w_data_path = os.path.join(self.config['data']['output'], self.config['data']['exp_name'], 'est_c2w_data.txt')
+        with open(est_c2w_data_path, 'w') as f:
+            for key, value in self.est_c2w_data.items():
+                f.write(" ".join(map(str, value.cpu().numpy().reshape(16)[:12].tolist())) + "\n")
+        print('Saved estimated camera poses to {}'.format(est_c2w_data_path))
         #TODO: Evaluation of reconstruction
 
     def rendering(self, batch, frame_id):
@@ -770,7 +631,7 @@ class DDSSLAM():
         # iH = self.config['tracking']['ignore_edge_H']
         # indice_h, indice_w = indice % (self.dataset.H - iH * 2), indice // (self.dataset.H - iH * 2)
 
-        cur_rot, cur_trans, pose_optimizer = self.get_pose_param_optim(cur_c2w[None, ...], mapping=False)
+        cur_rot, cur_trans, pose_optimizer = self.get_pose_param_optim(cur_c2w[None, ...], mapping=True)
         c2w_est = self.matrix_from_tensor(cur_rot, cur_trans)
 
         rays_d_cam = batch['direction'].squeeze(0).to(self.device)
@@ -808,44 +669,6 @@ class DDSSLAM():
         color = color.reshape(H, W, 3)
         color_np = color.detach().cpu().numpy()
 
-        """
-        depth = torch.cat(depth, dim=0)
-        depth = depth.reshape(H, W)
-        depth_np = depth.detach().cpu().numpy()
-
-        edge = torch.cat(edge, dim=0)
-        edge = edge.reshape(H, W)
-        edge_np = edge.detach().cpu().numpy()
-
-        edge_semantic = torch.cat(edge_semantic, dim=0)
-        edge_semantic = edge_semantic.reshape(H, W)
-        edge_semantic_np = edge_semantic.detach().cpu().numpy()
-        """
-        # color_np = np.round(color.detach().cpu().numpy()*255.0).astype(np.uint8)
-
-        # 这里是用语义的那个RGB图 还是有用的
-        # if use_semantic:
-        #     semantic = torch.cat(semantic, dim=0)
-        #     # print(semantic.size())
-        #     semantic = semantic.reshape(H, W, 3)
-        #     semantic_np = semantic.detach().cpu().numpy()
-        #     semantic_np = (semantic_np - np.min(semantic_np)) / (np.max(semantic_np) - np.min(semantic_np))
-        #     semantic_path = os.path.join(self.config['data']['output_semantic'], 'semantic', '{}.jpg'.format(frame_id))
-        #     plt.imsave(semantic_path, semantic_np)
-
-        # 这里是用语义的框架图 注意存的是灰度图
-        # if use_semantic:
-        #     semantic = torch.cat(semantic, dim=0)
-        #     semantic = semantic.reshape(H, W, 1)
-        #     semantic_np = semantic.detach().cpu().numpy()
-        #     semantic_np = (semantic_np - np.min(semantic_np)) / (np.max(semantic_np) - np.min(semantic_np))
-
-        #     # 转换为单通道数组
-        #     semantic_np = np.squeeze(semantic_np)
-
-        #     # 保存黑白图像
-        #     semantic_path = os.path.join(self.config['data']['output_semantic'], 'semantic', '{}.jpg'.format(frame_id))
-        #     plt.imsave(semantic_path, semantic_np)#, cmap='gray')
 
         color_np = (color_np - np.min(color_np)) / (np.max(color_np) - np.min(color_np))
         color_path = os.path.join(self.config['data']['output'],'{:0>4d}.jpg'.format(frame_id)) 
